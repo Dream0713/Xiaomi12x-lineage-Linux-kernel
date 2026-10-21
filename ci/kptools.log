@@ -1,0 +1,5 @@
+=== kptools -d ===
+./tools/kptools: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.38' not found (required by ./tools/kptools)
+
+=== kptools -p ===
+./tools/kptools: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.38' not found (required by ./tools/kptools)
