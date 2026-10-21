@@ -55,6 +55,7 @@ bash scripts/kconfig/merge_config.sh -O "$OUT_DIR" \
 
 echo "=== force kallsyms / no LTO / no KSU ==="
 bash scripts/config --file "$OUT_DIR/.config" \
+    --enable DEBUG_KERNEL \
     --enable KALLSYMS \
     --enable KALLSYMS_ALL \
     --enable KALLSYMS_BASE_RELATIVE \
@@ -92,7 +93,7 @@ if grep -q '^CONFIG_SHADOW_CALL_STACK=y' "$OUT_DIR/.config"; then
 fi
 
 echo "=== final relevant config ==="
-grep -E '^CONFIG_(KALLSYMS|KALLSYMS_ALL|KALLSYMS_BASE_RELATIVE|LTO_.*|KSU|CFI_CLANG|SHADOW_CALL_STACK|DEBUG_INFO|MODULES|MODVERSIONS)=' "$OUT_DIR/.config" || true
+grep -E '^CONFIG_(KALLSYMS|KALLSYMS_ALL|KALLSYMS_BASE_RELATIVE|DEBUG_KERNEL|LTO_.*|KSU|CFI_CLANG|SHADOW_CALL_STACK|DEBUG_INFO|MODULES|MODVERSIONS)=' "$OUT_DIR/.config" || true
 
 if ! grep -q '^CONFIG_KALLSYMS=y' "$OUT_DIR/.config"; then
     echo "ERROR: CONFIG_KALLSYMS is not enabled" >&2
