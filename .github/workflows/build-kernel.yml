@@ -1,0 +1,240 @@
+name: Build psyche kernel (kallsyms / FolkPatch)
+
+# The stock LineageOS 4.19.246 psyche kernel has no usable kallsyms token
+# table, so kptools fails with "find_token_table error".  This workflow
+# rebuilds the current lineage-23.2 source (4.19.325) with the LOS config
+# fragments, forces KALLSYMS/KALLSYMS_ALL, disables LTO and KernelSU, packs
+# boot.img with the stock LOS ramdisk, and tests the result with kptools.
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_ref:
+        description: "Kernel branch, tag or commit"
+        required: true
+        default: "lineage-23.2"
+        type: string
+      superkey:
+        description: "Superkey for the optional test-patched boot.img"
+        required: true
+        default: "folkpatch-psyche-2026"
+        type: string
+      build_patched:
+        description: "Run kptools and produce patched-boot.img"
+        required: true
+        default: true
+        type: boolean
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/build-kernel.yml"
+      - "scripts/**"
+      - "config/**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: psyche-kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+
+    env:
+      KERNEL_REPO: xiaomi-psyche-dev/android_kernel_xiaomi_sm8250
+      KERNEL_REF: ${{ github.event.inputs.kernel_ref || 'lineage-23.2' }}
+      SUPERKEY: ${{ github.event.inputs.superkey || 'folkpatch-psyche-2026' }}
+      BUILD_PATCHED: ${{ github.event.inputs.build_patched || 'true' }}
+      LOS_ROM_URL: "https://master.dl.sourceforge.net/project/xiaomi12x/LineageOS/lineage-23.2-20260226-UNOFFICIAL-psyche.zip?viasf=1"
+      LOS_ROM_SIZE: "1631161862"
+      LOS_ROM_MD5: "c700f1d5e4c6963ae9268e1efaf726c9"
+
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.KERNEL_REPO }}
+          ref: ${{ env.KERNEL_REF }}
+          path: kernel
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison flex libssl-dev libelf-dev libncurses5 libtinfo5 \
+            make gcc g++ python3 python-is-python3 perl \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            device-tree-compiler zip unzip cpio rsync xz-utils zstd \
+            jq curl wget git
+
+      - name: Fetch clang r416183b
+        run: |
+          set -euo pipefail
+          git clone --depth=1 \
+            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git \
+            clang
+          test -x clang/bin/clang
+          clang/bin/clang --version | head -1
+
+      - name: Cache LOS boot.img
+        id: cache-boot
+        uses: actions/cache@v4
+        with:
+          path: los/boot.img
+          key: los-boot-20260226-v1
+
+      - name: Download LOS ROM and extract boot.img
+        if: steps.cache-boot.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p los
+          curl -L --fail --retry 5 --retry-all-errors --connect-timeout 30 \
+            -o los.zip "$LOS_ROM_URL"
+          test "$(stat -c%s los.zip)" = "$LOS_ROM_SIZE"
+          test "$(md5sum los.zip | cut -d' ' -f1)" = "$LOS_ROM_MD5"
+          unzip -o los.zip payload.bin -d los
+          curl -L --fail --retry 5 \
+            -o payload-dumper-go.tar.gz \
+            https://github.com/ssut/payload-dumper-go/releases/download/2.1.0/payload-dumper-go_2.1.0_linux_amd64.tar.gz
+          tar -xzf payload-dumper-go.tar.gz -C los
+          chmod +x los/payload-dumper-go
+          ./los/payload-dumper-go -p boot -o los los/payload.bin
+          test -f los/boot.img
+          rm -f los.zip los/payload.bin payload-dumper-go.tar.gz
+
+      - name: Verify stock boot.img
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, struct
+          p = "los/boot.img"
+          data = open(p, "rb").read()
+          assert data[:8] == b"ANDROID!", "not an Android boot image"
+          hv = struct.unpack_from("<I", data, 40)[0]
+          ks, rs = struct.unpack_from("<II", data, 8)
+          assert hv == 3, f"unexpected boot header v{hv}"
+          print("stock boot.img:", len(data), "bytes")
+          print("header v3, kernel", ks, "ramdisk", rs)
+          print("sha256", hashlib.sha256(data).hexdigest())
+          PY
+
+      - name: Build kernel
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build-kernel.sh
+          ./scripts/build-kernel.sh 2>&1 | tee build.log
+
+      - name: Pack boot.img
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp kernel/out/arch/arm64/boot/Image artifacts/Image
+          cp kernel/out/System.map artifacts/System.map
+          cp kernel/out/.config artifacts/kernel.config
+          python3 scripts/pack_boot.py los/boot.img artifacts/Image artifacts/boot.img
+
+      - name: Verify kallsyms and patch with kptools
+        if: env.BUILD_PATCHED == 'true'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          mkdir -p tools artifacts
+          curl -L --fail --retry 5 -o tools/kptools \
+            https://github.com/bmax121/KernelPatch/releases/download/0.13.9/kptools-linux
+          curl -L --fail --retry 5 -o tools/kpimg \
+            https://github.com/bmax121/KernelPatch/releases/download/0.13.9/kpimg-android
+          chmod +x tools/kptools
+          {
+            echo "=== kptools -d ==="
+            ./tools/kptools -d -i artifacts/boot.img || true
+            echo
+            echo "=== kptools -p ==="
+            ./tools/kptools -p -i artifacts/boot.img -k tools/kpimg -s "$SUPERKEY" -o artifacts/patched-boot.img
+          } 2>&1 | tee artifacts/kptools.log
+          if [ -f artifacts/patched-boot.img ]; then
+            echo "kptools: OK (patched-boot.img created)" > artifacts/kptools-result.txt
+            printf '%s\n' "$SUPERKEY" > artifacts/superkey.txt
+          else
+            echo "kptools: FAILED (see kptools.log)" > artifacts/kptools-result.txt
+          fi
+          exit 0
+
+      - name: Write build summary
+        if: always()
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts
+          {
+            echo "# Psyche kernel build $GITHUB_RUN_NUMBER"
+            echo
+            echo "- kernel repo: \`$KERNEL_REPO\`"
+            echo "- kernel ref: \`$KERNEL_REF\`"
+            echo "- commit: \`$(git -C kernel rev-parse HEAD 2>/dev/null || echo unknown)\`"
+            echo "- clang: \`$(clang/bin/clang --version 2>/dev/null | head -1 || echo unknown)\`"
+            echo
+            echo "## Relevant config"
+            echo '```'
+            grep -E '^CONFIG_(KALLSYMS|KALLSYMS_ALL|KALLSYMS_BASE_RELATIVE|LTO_.*|KSU|CFI_CLANG|SHADOW_CALL_STACK|DEBUG_INFO|MODULES)=' artifacts/kernel.config 2>/dev/null || echo "config not available"
+            echo '```'
+            echo
+            echo "## Artifacts"
+            echo '```'
+            ls -lh artifacts 2>/dev/null || true
+            echo '```'
+            echo
+            echo "## kptools"
+            cat artifacts/kptools-result.txt 2>/dev/null || echo "not run"
+            echo
+            echo "Flash the unpatched \`boot.img\` for a kallsyms-enabled kernel, or"
+            echo "the \`patched-boot.img\` if you want the test KernelPatch injection."
+            echo "The superkey for the patched image is in \`superkey.txt\`."
+          } > artifacts/BUILD.md
+
+      - name: Create checksums
+        if: always()
+        run: |
+          mkdir -p artifacts
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: psyche-kernel-${{ github.run_number }}
+          path: artifacts/*
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Create release
+        if: always()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}-${{ github.run_attempt }}
+          name: Psyche kernel build ${{ github.run_number }}
+          body_path: artifacts/BUILD.md
+          files: artifacts/*
+          prerelease: true
+          fail_on_unmatched_files: false
+
+      - name: Publish CI log branch
+        if: always()
+        run: |
+          set -uo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p ci
+          tail -n 3000 build.log > ci/build.log 2>/dev/null || true
+          cp artifacts/BUILD.md ci/BUILD.md 2>/dev/null || true
+          cp artifacts/kptools-result.txt ci/kptools-result.txt 2>/dev/null || true
+          cp artifacts/kptools.log ci/kptools.log 2>/dev/null || true
+          git add ci
+          git commit -m "CI log run $GITHUB_RUN_NUMBER" || true
+          git push --force origin HEAD:ci-log || true

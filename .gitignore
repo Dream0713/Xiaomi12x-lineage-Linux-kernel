@@ -1,0 +1,11 @@
+/kernel/
+/clang/
+/los/
+/artifacts/
+/tools/
+/build.log
+/los.zip
+/payload-dumper-go.tar.gz
+__pycache__/
+*.pyc
+*.pyo
