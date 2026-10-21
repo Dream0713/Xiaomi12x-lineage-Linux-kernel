@@ -47,7 +47,11 @@ echo "=== base defconfig ==="
 make O="$OUT_DIR" vendor/kona-perf_defconfig
 
 echo "=== merge LOS config fragments ==="
+# The first argument is the base config.  Passing a fragment there would
+# discard every setting from vendor/kona-perf_defconfig, including PREEMPT,
+# TASKS_RCU, the page size, and all device drivers.
 bash scripts/kconfig/merge_config.sh -O "$OUT_DIR" \
+    "$OUT_DIR/.config" \
     arch/arm64/configs/vendor/debugfs.config \
     arch/arm64/configs/vendor/xiaomi/sm8250-common.config \
     arch/arm64/configs/vendor/xiaomi/psyche.config \
@@ -61,6 +65,8 @@ bash scripts/config --file "$OUT_DIR/.config" \
     --enable KALLSYMS_BASE_RELATIVE \
     --enable COMPAT \
     --disable COMPAT_VDSO \
+    --enable PREEMPT \
+    --enable TASKS_RCU \
     --disable LTO_CLANG \
     --enable LTO_NONE \
     --disable CFI_CLANG \
@@ -95,8 +101,16 @@ if grep -q '^CONFIG_SHADOW_CALL_STACK=y' "$OUT_DIR/.config"; then
 fi
 
 echo "=== final relevant config ==="
-grep -E '^CONFIG_(KALLSYMS|KALLSYMS_ALL|KALLSYMS_BASE_RELATIVE|DEBUG_KERNEL|COMPAT|COMPAT_VDSO|LTO_.*|KSU|CFI_CLANG|SHADOW_CALL_STACK|DEBUG_INFO|MODULES|MODVERSIONS)=' "$OUT_DIR/.config" || true
+grep -E '^CONFIG_(KALLSYMS|KALLSYMS_ALL|KALLSYMS_BASE_RELATIVE|DEBUG_KERNEL|COMPAT|COMPAT_VDSO|PREEMPT|TASKS_RCU|LTO_.*|KSU|CFI_CLANG|SHADOW_CALL_STACK|DEBUG_INFO|MODULES|MODVERSIONS)=' "$OUT_DIR/.config" || true
 
+if ! grep -q '^CONFIG_PREEMPT=y' "$OUT_DIR/.config"; then
+    echo "ERROR: CONFIG_PREEMPT is not enabled" >&2
+    exit 1
+fi
+if ! grep -q '^CONFIG_TASKS_RCU=y' "$OUT_DIR/.config"; then
+    echo "ERROR: CONFIG_TASKS_RCU is not enabled" >&2
+    exit 1
+fi
 if ! grep -q '^CONFIG_COMPAT=y' "$OUT_DIR/.config"; then
     echo "ERROR: CONFIG_COMPAT is not enabled (32-bit app support would be lost)" >&2
     exit 1
