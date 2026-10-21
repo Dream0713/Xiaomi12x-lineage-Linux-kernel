@@ -1,4 +1,4 @@
-# psyche-folkpatch-kernel
+# Xiaomi12x-lineage-Linux-kernel
 
 在 GitHub Actions 上为 **Xiaomi 12X（psyche）LineageOS 23.2** 重新编译内核，打开 `KALLSYMS` / `KALLSYMS_ALL`，让 `kptools` / FolkPatch（KernelPatch 0.13.9）能够识别并 patch `boot.img`。
 
@@ -34,7 +34,7 @@ CONFIG_LTO_NONE=y
 
 当前这台电脑上没有可用的 GitHub 写权限 token，所以需要你手动建一个空仓库并 push 一次（之后全自动）。
 
-1. 打开 <https://github.com/new>，仓库名填 `psyche-folkpatch-kernel`，选 **Public**，**不要**勾选 README / .gitignore / license。
+1. 打开 <https://github.com/new>，仓库名填 `Xiaomi12x-lineage-Linux-kernel`，选 **Public**，**不要**勾选 README / .gitignore / license。
 2. 在本目录运行：
 
 ```powershell
@@ -42,15 +42,15 @@ cd C:\Users\Sky\Documents\psyche-rom\github-kernel
 powershell -ExecutionPolicy Bypass -File .\setup-github.ps1
 ```
 
-脚本会把默认仓库设为 `Dream0713/psyche-folkpatch-kernel`。如果用户名或仓库名不同：
+脚本会把默认仓库设为 `Dream0713/Xiaomi12x-lineage-Linux-kernel`。如果用户名或仓库名不同：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\setup-github.ps1 -Repo "你的用户名/psyche-folkpatch-kernel"
+powershell -ExecutionPolicy Bypass -File .\setup-github.ps1 -Repo "你的用户名/Xiaomi12x-lineage-Linux-kernel"
 ```
 
 第一次 push 时 Git Credential Manager 会弹出 GitHub 登录窗口，按提示登录即可。push 成功后 workflow 会自动开始跑（因为 workflow 文件在 push 里）。
 
-也可以手动触发：打开 `https://github.com/<你的用户名>/psyche-folkpatch-kernel/actions` → **Build psyche kernel (kallsyms / FolkPatch)** → **Run workflow**。
+也可以手动触发：打开 `https://github.com/<你的用户名>/Xiaomi12x-lineage-Linux-kernel/actions` → **Build psyche kernel (kallsyms / FolkPatch)** → **Run workflow**。
 
 ## Workflow 做了什么
 

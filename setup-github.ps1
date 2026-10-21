@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Repo = "Dream0713/psyche-folkpatch-kernel",
+    [string]$Repo = "Dream0713/Xiaomi12x-lineage-Linux-kernel",
     [switch]$OpenCreate
 )
 
